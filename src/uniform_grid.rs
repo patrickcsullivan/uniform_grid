@@ -47,11 +47,16 @@ impl<T> UniformGrid<T>
 where
     T: PointObject,
 {
-    pub fn new(points: Vec<T>, scale: usize, spiral_cells: Vec<SpiralCell>) -> Self {
+    pub fn new(points: Vec<T>, scale: f32, spiral_cells: Vec<SpiralCell>) -> Self {
         // The maximum number of cells that the grid will be able to contain.
-        let max_cell_count = points.len() * scale;
+        let max_grid_width = scale * (points.len() as f32).cbrt();
+        let max_cell_count = (max_grid_width * max_grid_width * max_grid_width) as u32;
 
         let bb = BoundingBox::new(&points);
+        println!(
+            "Bounding box: ({:.2?}, {:.2?}, {:.2?}), ({:.2?}, {:.2?}, {:.2?})",
+            bb.min[0], bb.min[1], bb.min[2], bb.x_width, bb.y_width, bb.z_width
+        );
 
         // For simplicity we assume that we're constructing a uniform grid that has the
         // same number of cells in each dimension. To save space, we should allow
@@ -272,11 +277,40 @@ where
         center_cell_offset: Offset3,
         cell_offsets: Vec<Offset3>,
     ) -> Option<SearchResult> {
-        let points = cell_offsets
-            .iter()
-            .filter_map(|o| self.offset_into_index1(center_cell_offset + o))
-            .flat_map(|i| &self.cell_point_positions[i]);
-        nearest(query_point, points)
+        let mut min_point: Option<SearchResult> = None;
+        for o in cell_offsets {
+            if let Some(cell_idx) = self.offset_into_index1(center_cell_offset + o) {
+                let count = &self.cell_point_counts[cell_idx];
+                if *count > 0 {
+                    for (pos, pt_idx) in &self.cell_point_positions[cell_idx] {
+                        if let Some(sr) = &min_point {
+                            let d2 = dist2(query_point, *pos);
+                            if d2 < sr.distance2_to_query {
+                                min_point = Some(SearchResult {
+                                    position: *pos,
+                                    point_object_index: *pt_idx,
+                                    distance2_to_query: d2,
+                                })
+                            }
+                        } else {
+                            min_point = Some(SearchResult {
+                                position: *pos,
+                                point_object_index: *pt_idx,
+                                distance2_to_query: dist2(query_point, *pos),
+                            })
+                        }
+                    }
+                }
+            }
+        }
+        min_point
+
+        // let points = cell_offsets
+        //     .iter()
+        //     .filter_map(|o| self.offset_into_index1(center_cell_offset + o))
+        //     .filter(|&i| self.cell_point_counts[i] > 0)
+        //     .flat_map(|i| &self.cell_point_positions[i]);
+        // nearest(query_point, points)
     }
 }
 
